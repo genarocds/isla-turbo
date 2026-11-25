@@ -65,6 +65,20 @@ tr.me td{color:var(--mango);font-weight:800}
 body.is-touch .touch{display:flex}
 body.is-touch #br{bottom:calc(160px + env(safe-area-inset-bottom,0px))}
 body.is-touch #bl{display:none}
+.modes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.mode{min-height:44px;border-radius:10px;border:2px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:var(--ink);font:15px Bungee,sans-serif;cursor:pointer}
+.mode[aria-pressed=true]{border-color:var(--mango);background:rgba(255,210,63,.16);color:var(--mango)}
+.modehelp{font-size:14px;opacity:.8;margin:-2px 0 10px}
+.cash{font:clamp(28px,5vw,44px)/1 Bungee,Impact,sans-serif;color:#7dff9a;text-shadow:0 3px 0 #000}
+.stars{font-size:clamp(22px,3.4vw,30px);letter-spacing:2px;text-shadow:0 2px 0 #000;color:rgba(255,255,255,.25)}
+.stars b{color:var(--mango)}
+.stars.flash b{animation:fl .5s steps(2) infinite}
+@keyframes fl{50%{color:#4fb6ff}}
+.job{margin-top:6px;background:var(--glass);border-left:4px solid var(--mango);padding:6px 10px;border-radius:6px;max-width:min(320px,55vw);font-weight:700;font-size:15px}
+.job b{color:var(--mango)}
+#bust{position:fixed;left:50%;top:62%;transform:translateX(-50%);width:min(260px,60vw);height:10px;border-radius:5px;background:rgba(0,0,0,.5);z-index:3;overflow:hidden}
+#bust i{display:block;height:100%;width:0;background:linear-gradient(90deg,#ff2a3a,#2a6bff)}
+@media(prefers-reduced-motion:reduce){.stars.flash b{animation:none}}
 .hidden{display:none!important}
 @media(max-width:600px){.panel{top:auto;bottom:16px;transform:none;padding:16px}.panel p{font-size:15px}.keys{display:none}#mini{display:none}}
 </style>
@@ -72,11 +86,19 @@ body.is-touch #bl{display:none}
 <canvas id="gl"></canvas>
 
 <div class="hud hidden" id="tl">
+  <div id="raceHud">
   <div class="pos" id="pos">1<small>/4</small></div>
   <div class="row">VUELTA <b id="lap">1/3</b></div>
   <div class="row">TIEMPO <b id="time">0:00.0</b></div>
+  </div>
   <div class="row" id="best"></div>
+  <div id="freeHud" class="hidden">
+    <div class="cash" id="cash">$0</div>
+    <div class="stars" id="stars"></div>
+    <div class="job" id="job"></div>
+  </div>
 </div>
+<div id="bust" class="hidden"><i id="bustBar"></i></div>
 <div class="hud hidden" id="tr"><canvas id="mini" width="340" height="340"></canvas></div>
 <div class="hud hidden" id="br"><canvas id="speedo" width="440" height="440"></canvas></div>
 <div class="hud hidden" id="bl">
@@ -92,6 +114,8 @@ body.is-touch #bl{display:none}
 <div class="panel" id="menu">
   <h1>ISLA TURBO</h1>
   <p>Carreras callejeras de noche por el malecón de San Juan. Tres vueltas, tres rivales y la emisora sonando reggaetón.</p>
+  <div class="modes"><button class="mode" data-m="race" aria-pressed="true">CARRERA</button><button class="mode" data-m="free" aria-pressed="false">CALLE LIBRE</button></div>
+  <div class="modehelp" id="modehelp"></div>
   <div class="cars" id="cars"></div>
   <button class="go" id="start">¡DALE!</button>
   <div class="keys">
@@ -102,6 +126,7 @@ body.is-touch #bl{display:none}
     <kbd>Shift</kbd><span>Nitro</span>
     <kbd>C</kbd><span>Cámara · <kbd>R</kbd> volver a la pista</span>
     <kbd>N / M</kbd><span>Siguiente canción / silenciar música</span>
+    <kbd>Esc</kbd><span>Volver al menú</span>
   </div>
 </div>
 
@@ -451,6 +476,17 @@ function makeCarMesh(c) {
   beam.rotation.x = -Math.PI / 2; beam.position.set(0, .09, 12); g.add(beam);
   const flame = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: '#4fb6ff', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
   flame.position.set(0, .55, -2.6); flame.scale.set(0, 0, 1); g.add(flame); g.userData.flame = flame;
+  if (c.police) {
+    add(new THREE.BoxGeometry(1.3, .14, .34), dark, 0, 1.64, -.45);
+    const red = new THREE.MeshBasicMaterial({ color: '#ff1a2a' }), blue = new THREE.MeshBasicMaterial({ color: '#1a5cff' });
+    add(new THREE.BoxGeometry(.58, .16, .3), red, -.33, 1.72, -.45); add(new THREE.BoxGeometry(.58, .16, .3), blue, .33, 1.72, -.45);
+    const white = new THREE.MeshPhongMaterial({ color: '#f2f4f7', shininess: 80 });
+    for (const x of [-1.03, 1.03]) add(new THREE.BoxGeometry(.04, .34, 1.7), white, x, .66, .1);
+    const glowR = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: '#ff2a3a', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    const glowB = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: '#2a6bff', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glowR.position.set(-.4, 1.8, -.45); glowB.position.set(.4, 1.8, -.45); body.add(glowR); body.add(glowB);
+    g.userData.bar = { red, blue, glowR, glowB };
+  }
   scene.add(g); return g;
 }
 
@@ -530,6 +566,12 @@ class Car {
     m.userData.wheels.forEach((w, i) => { w.rotation.x = this.wheelSpin; if (i < 2) w.rotation.y = this.steerVis * .45; });
     const fl = m.userData.flame, k = this.nitroOn ? 1.6 + Math.random() * .8 : 0;
     fl.scale.set(k, k, 1);
+    const bar = m.userData.bar;
+    if (bar) {
+      const on = this.chasing, ph = Math.floor(t * 8) % 2;
+      bar.red.color.set(on && ph ? '#ff1a2a' : '#4a0a10'); bar.blue.color.set(on && !ph ? '#1a5cff' : '#0a1640');
+      const sR = on && ph ? 7 : 0, sB = on && !ph ? 7 : 0; bar.glowR.scale.set(sR, sR, 1); bar.glowB.scale.set(sB, sB, 1);
+    }
   }
 }
 
@@ -559,6 +601,9 @@ function initAudio() {
   e1.connect(ef); e2.connect(ef); ef.connect(eg); eg.connect(A.sfx); e1.start(); e2.start();
   A.eng = { e1, e2, ef, eg };
   const mk = (type, f) => { const s = ctx.createBufferSource(); s.buffer = nb; s.loop = true; const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; const g = ctx.createGain(); g.gain.value = 0; s.connect(fl); fl.connect(g); g.connect(A.sfx); s.start(); return g; };
+  const so = ctx.createOscillator(), sl = ctx.createOscillator(), slg = ctx.createGain(), sg = ctx.createGain();
+  so.type = 'triangle'; so.frequency.value = 900; sl.frequency.value = .45; slg.gain.value = 380; sg.gain.value = 0;
+  sl.connect(slg); slg.connect(so.frequency); so.connect(sg); sg.connect(A.sfx); so.start(); sl.start(); A.siren = sg;
   A.screech = mk('bandpass', 1500); A.whoosh = mk('highpass', 2500); A.scrape = mk('bandpass', 600);
   A.step = 0; A.next = ctx.currentTime + .1; A.bar = 0;
   A.timer = setInterval(schedule, 25);
@@ -642,7 +687,8 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyC') camMode = (camMode + 1) % 3;
   if (e.code === 'KeyN' && A.ctx) setSong(A.song + 1);
   if (e.code === 'KeyM' && A.ctx) { A.muted = !A.muted; A.music.gain.value = A.muted ? 0 : .55; toast(A.muted ? 'Música apagada' : 'Música encendida', '', 1); }
-  if (e.code === 'KeyR' && race.state === 'race') { player.place(player.idx, 0); toast('De vuelta a la pista', '', 1); }
+  if (e.code === 'Escape' && race.state !== 'menu') backToMenu();
+  if (e.code === 'KeyR' && (race.state === 'race' || race.state === 'free')) { player.place(player.idx, 0); toast('De vuelta a la pista', '', 1); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 const touch = {};
@@ -682,7 +728,7 @@ function aiInput(c, dt) {
 
 // ---------------------------------------------------------------- race state
 const LAPS = 3;
-const race = { state: 'menu', t: 0, count: 0, bestLap: null, lapStart: 0, driftScore: 0, driftChain: 0, driftIdle: 0, total: 0 };
+const race = { mode: 'race', state: 'menu', t: 0, count: 0, bestLap: null, lapStart: 0, driftScore: 0, driftChain: 0, driftIdle: 0, total: 0 };
 let player, cars = [], selected = 0, camMode = 0;
 function buildGrid() {
   for (const c of cars) scene.remove(c.mesh);
@@ -701,12 +747,34 @@ renderCarList(); buildGrid();
 let toastT = 0;
 function toast(a, b = '', dur = 1.4) { $('toast').innerHTML = ''; const d = document.createElement('div'); d.textContent = a; if (b) { const s = document.createElement('small'); s.textContent = b; d.appendChild(s); } $('toast').appendChild(d); $('toast').style.opacity = 1; toastT = dur; }
 
+const MODE_HELP = { race: 'Tres vueltas contra tres rivales. Gana el primero en cruzar la meta.', free: 'Mundo abierto con tráfico. Haz encargos, recoge chavos, y si te pasas de la raya, escápate de la policía.' };
+function renderModes() {
+  document.querySelectorAll('.mode').forEach(b => { b.setAttribute('aria-pressed', b.dataset.m === race.mode); b.onclick = () => { race.mode = b.dataset.m; renderModes(); }; });
+  $('modehelp').textContent = MODE_HELP[race.mode];
+}
+renderModes();
 function startRace() {
-  initAudio(); buildGrid();
+  initAudio(); buildGrid(); clearWorld(); hideFreeProps();
   ['menu', 'results'].forEach(id => $(id).classList.add('hidden'));
   ['tl', 'tr', 'br', 'bl'].forEach(id => $(id).classList.remove('hidden'));
+  const isFree = race.mode === 'free';
+  $('freeHud').classList.toggle('hidden', !isFree); $('raceHud').classList.toggle('hidden', isFree);
   Object.assign(race, { state: 'count', t: 0, count: 3.99, bestLap: null, lapStart: 0, driftScore: 0, driftChain: 0, driftIdle: 0, total: 0, lastLap: 0 });
+  if (isFree) {
+    for (const c of cars.slice(1)) scene.remove(c.mesh);
+    cars = [player]; player.place(0, -5);
+    Object.assign(free, { heat: 0, escapeT: 0, bustT: 0, spawnT: 0, job: null, jobCool: 3 });
+    spawnTraffic(); spawnPolice(false, 330); spawnPolice(false, 760);
+    race.state = 'free'; $('big').textContent = '';
+    toast('CALLE LIBRE', 'Haz encargos y no dejes que te agarre la policía', 3);
+  }
   if (!A.started) { A.started = true; setSong(0); }
+}
+function backToMenu() {
+  race.state = 'menu'; clearWorld(); hideFreeProps(); buildGrid();
+  $('big').textContent = ''; $('bust').classList.add('hidden');
+  ['tl', 'tr', 'br', 'bl', 'results'].forEach(id => $(id).classList.add('hidden'));
+  $('menu').classList.remove('hidden');
 }
 $('start').onclick = startRace; $('again').onclick = startRace;
 
@@ -719,6 +787,200 @@ function finishRace() {
   $('resTable').innerHTML = order.map((c, i) => `<tr class="${c === player ? 'me' : ''}"><td>${i + 1}. ${c.name}</td><td>${c.finish != null ? fmt(c.finish) : 'DNF'}</td></tr>`).join('') +
     `<tr><td>Mejor vuelta</td><td>${race.bestLap ? fmt(race.bestLap) : '—'}</td></tr><tr><td>Puntos de derrape</td><td>${Math.round(race.total).toLocaleString('es-PR')}</td></tr>`;
   setTimeout(() => $('results').classList.remove('hidden'), 1200);
+}
+
+// ---------------------------------------------------------------- calle libre: traffic, police, jobs, cash
+const TRAFFIC_COLORS = ['#8a8f99', '#5b6b7a', '#a83232', '#e8e2d0', '#2d4a3e', '#6a4c93', '#c9b458', '#2b2b2b', '#3d7bb8', '#d9822b'];
+const POLICE = { name: 'Policía', color: '#0d1a3a', glow: '#1a3cff', accel: 16, max: 74, grip: 8.4, turn: 2.05, police: true };
+const PLACES = ['Colmado Don Pepe', 'La Placita', 'Barbería El Corte', 'Lechonera La Tía', 'Muelle 3', 'Piraguas Doña Carmen', 'Gomera El Flaco', 'Chinchorro La Ola', 'Panadería Sol', 'Taller Los Primos'];
+const GOODS = ['pinchos', 'un pernil', 'piraguas', 'mofongo', 'un bizcocho', 'piezas de motor', 'pastelillos', 'café colao'];
+let traffic = [], police = [], world = [];
+const free = { cash: 0, heat: 0, escapeT: 0, bustT: 0, spawnT: 0, job: null, jobCool: 0 };
+const pick = a => a[rnd() * a.length | 0];
+const ahead = (from, to) => ((to - from) % M + M) % M;
+function vehicles() { return [...cars, ...traffic, ...police]; }
+function clearWorld() { for (const c of [...traffic, ...police]) scene.remove(c.mesh); traffic = []; police = []; if (A.siren) A.siren.gain.value = 0; }
+function spawnTraffic() {
+  const N = 26;
+  for (let i = 0; i < N; i++) {
+    const idx = Math.floor((i + .2 + rnd() * .6) / N * M);
+    if (Math.min(ahead(player.idx, idx), ahead(idx, player.idx)) < 25) continue;
+    const dir = rnd() < .65 ? 1 : -1;
+    const c = new Car({ color: TRAFFIC_COLORS[i % TRAFFIC_COLORS.length], glow: '#111111', accel: 9, max: 30, grip: 8, turn: 1.8 }, false, 'Tráfico');
+    c.kind = 'traffic'; c.dir = dir; c.cruise = 14 + rnd() * 9;
+    c.place(idx, dir > 0 ? -6 : 6); if (dir < 0) c.h += Math.PI;
+    c.vel.copy(c.fwd).multiplyScalar(c.cruise);
+    traffic.push(c);
+  }
+}
+function spawnPolice(chasing, idx) {
+  const c = new Car(POLICE, false, 'Policía'); c.kind = 'police'; c.chasing = chasing; c.dir = 1; c.cruise = 19;
+  c.place(idx, chasing ? (rnd() - .5) * 8 : -6); if (chasing) c.vel.copy(c.fwd).multiplyScalar(40);
+  police.push(c); return c;
+}
+function trafficInput(c) {
+  const sp = c.speed, d = c.dir, look = 6 + Math.floor(sp * .25), lane = d > 0 ? -6 : 6;
+  const s = S[(c.idx + d * look + M * 4) % M];
+  const want = Math.atan2(s.p.x + s.n.x * lane - c.pos.x, s.p.z + s.n.z * lane - c.pos.z);
+  let target = c.cruise * (1 - S[c.idx].curv * .4);
+  const f = c.fwd;
+  for (const o of world) {
+    if (o === c) continue;
+    const rx = o.pos.x - c.pos.x, rz = o.pos.z - c.pos.z, fwd = rx * f.x + rz * f.z, side = Math.abs(rx * f.z - rz * f.x);
+    if (fwd > 0 && fwd < 16 && side < 3) target = Math.min(target, o === player ? 0 : o.speed * .9);
+  }
+  return { steer: clamp(wrapA(want - c.h) * 2.5, -1, 1), gas: sp < target, brake: sp > target + 3, hand: false, nitro: false };
+}
+function policeInput(c) {
+  if (!c.chasing) return trafficInput(c);
+  const sp = c.speed, dx = player.pos.x - c.pos.x, dz = player.pos.z - c.pos.z, d = Math.hypot(dx, dz);
+  let want, target;
+  if (d < 40) { want = Math.atan2(dx + player.vel.x * .35, dz + player.vel.z * .35); target = d > 12 ? player.speed + 12 : player.speed * .5; }
+  else {
+    let dp = player.idx - c.idx; if (dp > M / 2) dp -= M; if (dp < -M / 2) dp += M;
+    const dir = dp >= 0 ? 1 : -1, s = S[(c.idx + dir * (8 + Math.floor(sp * .3)) + M * 4) % M], lane = clamp(player.lat, -W + 3, W - 3);
+    want = Math.atan2(s.p.x + s.n.x * lane - c.pos.x, s.p.z + s.n.z * lane - c.pos.z);
+    target = c.stats.max * clamp(1.08 - S[(c.idx + dir * Math.floor(sp * .45) + M * 4) % M].curv * .75, .45, 1);
+  }
+  return { steer: clamp(wrapA(want - c.h) * 3, -1, 1), gas: sp < target, brake: sp > target + 6, hand: false, nitro: d > 120 && c.nitro > 20 };
+}
+function collide(list) {
+  for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+    const a = list[i], b = list[j], dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z;
+    if (Math.abs(dx) > 4.2 || Math.abs(dz) > 4.2) continue;
+    const d = Math.hypot(dx, dz);
+    if (d < 4.2 && d > .01) {
+      const nx = dx / d, nz = dz / d, push = (4.2 - d) / 2;
+      a.pos.x -= nx * push; a.pos.z -= nz * push; b.pos.x += nx * push; b.pos.z += nz * push;
+      const rv = (b.vel.x - a.vel.x) * nx + (b.vel.z - a.vel.z) * nz;
+      if (rv < 0) {
+        const k = -rv * .8; a.vel.x -= nx * k; a.vel.z -= nz * k; b.vel.x += nx * k; b.vel.z += nz * k;
+        if (a.isPlayer || b.isPlayer) { shake = Math.min(1, shake + k * .05); if (A.ctx) noiseHit(A.ctx.currentTime, 'lowpass', 400, .2, .5); onPlayerHit(a.isPlayer ? b : a, k); }
+      }
+    }
+  }
+}
+function onPlayerHit(o, k) {
+  if (race.state !== 'free' || k < 3 || free.hitCool > 0) return;
+  free.hitCool = 2.5;
+  if (o.kind === 'police') { if (!o.chasing) { o.chasing = true; addHeat(1, '¡Chocaste una patrulla!'); } else if (k > 8) addHeat(.3); }
+  else if (o.kind === 'traffic') { free.cash = Math.max(0, free.cash - 10); if (police.some(p => p.pos.distanceTo(player.pos) < 120)) addHeat(.5, 'Choque con testigos'); }
+}
+function addHeat(n, msg) {
+  const before = Math.ceil(free.heat); free.heat = Math.min(5, free.heat + n); free.escapeT = 0;
+  if (before === 0) { const near = police.filter(c => !c.chasing).sort((a, b) => a.pos.distanceTo(player.pos) - b.pos.distanceTo(player.pos))[0]; if (near) near.chasing = true; }
+  if (Math.ceil(free.heat) > before) toast(msg || 'NIVEL DE BÚSQUEDA ' + Math.ceil(free.heat), 'La policía te persigue', 1.8);
+}
+function calmDown() { free.heat = 0; free.escapeT = 0; free.bustT = 0; for (const c of police) scene.remove(c.mesh); police = []; }
+function busted() {
+  const fine = Math.min(free.cash, 100 * Math.ceil(free.heat) + Math.floor(free.cash * .2));
+  free.cash -= fine; calmDown();
+  $('big').textContent = '¡ARRESTADO!'; setTimeout(() => { if ($('big').textContent === '¡ARRESTADO!') $('big').textContent = ''; }, 2200);
+  if (free.job && free.job.stage === 'drop') { free.job = null; free.jobCool = 6; }
+  toast('Multa: $' + fine.toLocaleString('es-PR'), 'Te soltaron más adelante', 2.6);
+  player.place((player.idx + 60) % M, -5);
+}
+// job marker + cash pickups
+const marker = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 28, 28, 1, true), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: .35, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+marker.visible = false; scene.add(marker);
+const coins = [];
+{
+  const geo = new THREE.CylinderGeometry(1.1, 1.1, .22, 20); geo.rotateX(Math.PI / 2);
+  const mat = new THREE.MeshPhongMaterial({ color: '#2ee86a', emissive: '#0f7a35', shininess: 100 });
+  const sign = textTex('$', '#7dff9a', 128, 128);
+  for (let i = 0; i < 36; i++) {
+    const s = S[Math.floor(i / 36 * M + 15) % M], lane = (rnd() - .5) * 16;
+    const m = new THREE.Mesh(geo, mat); m.position.set(s.p.x + s.n.x * lane, 1.6, s.p.z + s.n.z * lane);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: sign, transparent: true, depthWrite: false })); sp.scale.set(2.2, 2.2, 1); sp.position.y = 2; m.add(sp);
+    m.visible = false; scene.add(m); coins.push({ m, t: 0 });
+  }
+}
+function hideFreeProps() { marker.visible = false; coins.forEach(c => { c.m.visible = false; c.t = 0; }); }
+function chime(notes) { if (!A.ctx) return; notes.forEach((n, i) => osc('square', mtof(n), A.ctx.currentTime + i * .07, .12, .08, A.sfx)); }
+function newJob() {
+  const idx = (player.idx + 100 + Math.floor(rnd() * 250)) % M;
+  free.job = { stage: 'pick', idx, lane: (rnd() - .5) * 12, from: pick(PLACES), dest: pick(PLACES), goods: pick(GOODS) };
+  if (free.job.dest === free.job.from) free.job.dest = PLACES[(PLACES.indexOf(free.job.from) + 3) % PLACES.length];
+  toast('NUEVO ENCARGO', 'Recoge ' + free.job.goods + ' en ' + free.job.from, 2.4);
+}
+function updateJobs(dt) {
+  if (!free.job) { marker.visible = false; free.jobCool -= dt; if (free.jobCool <= 0) newJob(); return; }
+  const j = free.job, s = S[j.idx], mx = s.p.x + s.n.x * j.lane, mz = s.p.z + s.n.z * j.lane;
+  marker.visible = true; marker.position.set(mx, 14, mz); marker.material.color.set(j.stage === 'pick' ? '#ffd23f' : '#19d3c5');
+  marker.rotation.y += dt; const k = 1 + Math.sin(race.t * 5) * .06; marker.scale.set(k, 1, k);
+  const d = Math.hypot(player.pos.x - mx, player.pos.z - mz);
+  j.dist = Math.min(ahead(player.idx, j.idx), ahead(j.idx, player.idx)) * S.len / M;
+  if (j.stage === 'pick' && d < 7.5) {
+    j.stage = 'drop'; j.idx = (j.idx + 280 + Math.floor(rnd() * 320)) % M; j.lane = (rnd() - .5) * 12;
+    j.time = ahead(player.idx, j.idx) * S.len / M / 36 + 14; chime([72, 76, 79]);
+    toast('Recogiste ' + j.goods, 'Llévalo a ' + j.dest + ' a tiempo', 2.2);
+  } else if (j.stage === 'drop') {
+    j.time -= dt;
+    if (d < 7.5) { const pay = 250 + Math.round(j.time * 12); free.cash += pay; chime([72, 76, 79, 84]); toast('¡ENTREGADO! +$' + pay, j.dest + ' te lo agradece', 2.4); free.job = null; free.jobCool = 4; }
+    else if (j.time <= 0) { toast('ENCARGO FALLIDO', 'Se te acabó el tiempo', 2); free.job = null; free.jobCool = 6; }
+  }
+}
+function updatePickups(dt) {
+  for (const c of coins) {
+    if (c.t > 0) { c.t -= dt; c.m.visible = c.t <= 0; continue; }
+    c.m.visible = true; c.m.rotation.y += dt * 3;
+    const dx = c.m.position.x - player.pos.x, dz = c.m.position.z - player.pos.z;
+    if (dx * dx + dz * dz < 11) { c.t = 45; c.m.visible = false; free.cash += 25; chime([84, 88]); }
+  }
+}
+function driftAndNitro(dt, nearFilter) {
+  const isFree = race.state === 'free';
+  if (player.drifting && player.speed > 18) { race.driftChain += dt * player.speed * 4 * (1 + player.slip * 2); race.driftIdle = 0; player.nitro = Math.min(100, player.nitro + dt * 14); }
+  else if (race.driftChain > 0) {
+    race.driftIdle += dt;
+    if (race.driftIdle > .6) {
+      const pts = Math.round(race.driftChain);
+      if (pts > 150) { if (isFree) { const pay = Math.round(pts / 25); free.cash += pay; toast('¡DRIFT! +$' + pay, pts.toLocaleString('es-PR') + ' puntos', 1.4); } else toast('¡DRIFT! +' + pts.toLocaleString('es-PR'), 'Nitro cargado', 1.4); }
+      race.total += race.driftChain; race.driftChain = 0;
+    }
+  }
+  player.nitro = Math.min(100, player.nitro + dt * 1.2);
+  for (const c of world) if (c !== player && nearFilter(c)) {
+    const d = c.pos.distanceTo(player.pos);
+    if (d < 5.6 && d > 4.2 && player.speed > 30 && !c.nearT) { c.nearT = 2; player.nitro = Math.min(100, player.nitro + 12); if (isFree) free.cash += 15; toast('¡POR UN PELO!', isFree ? '+$15 · +Nitro' : '+Nitro', 1); }
+    c.nearT = Math.max(0, (c.nearT || 0) - dt);
+  }
+  if (player.hitWall > 8) shake = Math.min(1, shake + .3);
+}
+function updateFree(dt, inp) {
+  race.t += dt; world = vehicles();
+  free.hitCool = Math.max(0, (free.hitCool || 0) - dt);
+  player.step(inp, dt);
+  for (const c of traffic) c.step(trafficInput(c), dt);
+  for (const c of police) { c.step(policeInput(c), dt); c.nitro = Math.min(100, c.nitro + dt * 5); }
+  collide(world);
+  driftAndNitro(dt, c => c.kind === 'traffic');
+  const kmh = player.speed * 3.6;
+  if (free.heat === 0) for (const c of police) if (kmh > 140 && c.pos.distanceTo(player.pos) < 45) { addHeat(1, '¡Te vieron a ' + Math.round(kmh) + ' km/h!'); break; }
+  const chasers = police.filter(c => c.chasing);
+  const nearest = chasers.reduce((m, c) => Math.min(m, c.pos.distanceTo(player.pos)), 1e9);
+  free.nearest = nearest;
+  if (free.heat > 0) {
+    const stars = Math.ceil(free.heat);
+    free.spawnT -= dt;
+    if (chasers.length < Math.min(5, stars + 1) && free.spawnT <= 0) {
+      free.spawnT = 5;
+      const patrol = police.find(c => !c.chasing);
+      if (patrol) patrol.chasing = true; else spawnPolice(true, (player.idx - 90 - Math.floor(rnd() * 40) + M) % M);
+    }
+    if (nearest > 160 && free.bustT <= 0) {
+      free.escapeT += dt;
+      if (free.escapeT > 6 + stars * 2) { const bonus = 150 * stars; free.cash += bonus; chime([67, 72, 76, 79]); toast('¡TE ESCAPASTE!', '+$' + bonus, 2.4); calmDown(); }
+    } else free.escapeT = 0;
+    if (nearest < 10 && player.speed < 7) free.bustT += dt; else free.bustT = Math.max(0, free.bustT - dt * 2);
+    free.heat = Math.min(5, free.heat + dt * .008 * stars);
+    if (free.bustT > 2.5) busted();
+  }
+  if (police.length < 2) spawnPolice(false, (player.idx + 250 + Math.floor(rnd() * 300)) % M);
+  // despawn idle patrols that fall far behind so the city keeps one in front of you
+  police = police.filter(c => { if (!c.chasing && ahead(c.idx, player.idx) < M * .5 && ahead(c.idx, player.idx) > 150) { scene.remove(c.mesh); return false; } return true; });
+  updateJobs(dt); updatePickups(dt);
+  if (A.ctx) A.siren.gain.setTargetAtTime(chasers.length ? clamp(1 - nearest / 260, 0, 1) * .07 : 0, A.ctx.currentTime, .1);
 }
 
 // ---------------------------------------------------------------- HUD drawing
@@ -746,6 +1008,10 @@ function drawMini() {
   S.forEach((s, i) => { if (i % 6) return; const [x, y] = P(s.p.x, s.p.z); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); g.stroke();
   g.lineWidth = 3; g.strokeStyle = '#fff7ea'; g.stroke();
   const [sx0, sy0] = P(S[0].p.x, S[0].p.z); g.fillStyle = '#ffd23f'; g.fillRect(sx0 - 6, sy0 - 6, 12, 12);
+  if (free.job && race.state === 'free') { const s = S[free.job.idx], [x, y] = P(s.p.x, s.p.z); g.fillStyle = free.job.stage === 'pick' ? '#ffd23f' : '#19d3c5'; g.beginPath(); g.arc(x, y, 12 + Math.sin(race.t * 6) * 3, 0, 7); g.fill(); }
+  for (const c of traffic) { const [x, y] = P(c.pos.x, c.pos.z); g.fillStyle = 'rgba(200,210,220,.55)'; g.fillRect(x - 3, y - 3, 6, 6); }
+  const ph = Math.floor(race.t * 6) % 2;
+  for (const c of police) { const [x, y] = P(c.pos.x, c.pos.z); g.fillStyle = c.chasing ? (ph ? '#ff2a3a' : '#2a6bff') : '#5a7bff'; g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); }
   for (const c of cars) { const [x, y] = P(c.pos.x, c.pos.z); g.fillStyle = c.stats.color; g.beginPath(); g.arc(x, y, c === player ? 11 : 8, 0, 7); g.fill(); if (c === player) { g.lineWidth = 3; g.strokeStyle = '#fff'; g.stroke(); } }
 }
 
@@ -775,31 +1041,18 @@ function frame(now) {
       }
       if (!c.isPlayer) c.nitro = Math.min(100, c.nitro + dt * 4);
     }
-    // car-car collisions
-    for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
-      const a = cars[i], b = cars[j], dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz);
-      if (d < 4.2 && d > .01) {
-        const nx = dx / d, nz = dz / d, push = (4.2 - d) / 2;
-        a.pos.x -= nx * push; a.pos.z -= nz * push; b.pos.x += nx * push; b.pos.z += nz * push;
-        const rv = (b.vel.x - a.vel.x) * nx + (b.vel.z - a.vel.z) * nz;
-        if (rv < 0) { const k = -rv * .8; a.vel.x -= nx * k; a.vel.z -= nz * k; b.vel.x += nx * k; b.vel.z += nz * k; if (a.isPlayer || b.isPlayer) { shake = Math.min(1, shake + k * .05); if (A.ctx) noiseHit(A.ctx.currentTime, 'lowpass', 400, .2, .5); } }
-      }
-    }
-    // drift scoring / nitro charge / near-miss
+    world = cars; collide(cars);
     if (race.state === 'race') {
-      if (player.drifting && player.speed > 18) { race.driftChain += dt * player.speed * 4 * (1 + player.slip * 2); race.driftIdle = 0; player.nitro = Math.min(100, player.nitro + dt * 14); }
-      else if (race.driftChain > 0) { race.driftIdle += dt; if (race.driftIdle > .6) { if (race.driftChain > 150) toast('¡DRIFT! +' + Math.round(race.driftChain).toLocaleString('es-PR'), 'Nitro cargado', 1.4); race.total += race.driftChain; race.driftChain = 0; } }
-      player.nitro = Math.min(100, player.nitro + dt * 1.2);
-      for (const c of cars) if (c !== player) { const d = c.pos.distanceTo(player.pos); if (d < 5.6 && d > 4.2 && player.speed > 40 && !c.nearT) { c.nearT = 2; player.nitro = Math.min(100, player.nitro + 12); toast('¡POR UN PELO!', '+Nitro', 1); } c.nearT = Math.max(0, (c.nearT || 0) - dt); }
-      if (player.hitWall > 8) shake = Math.min(1, shake + .3);
+      driftAndNitro(dt, () => true);
       const wrong = player.fwd.dot(S[player.idx].t) < -.4 && player.speed > 8;
       if (wrong && toastT <= 0) toast('¡VAS AL REVÉS!', 'Pulsa R para volver', .8);
     }
   } else if (race.state === 'count') {
+    if (race.mode === 'free') race.state = 'free';
     for (const c of cars) c.trackConstrain();
-  }
+  } else if (race.state === 'free') updateFree(dt, inp);
   engineAudio(player, inp, dt);
-  cars.forEach(c => c.sync(now / 1000));
+  for (const c of vehicles()) c.sync(now / 1000);
   flags.forEach((f, i) => { const p = f.geometry.attributes.position; for (let k = 0; k < p.count; k++) { const x = p.getX(k); p.setZ(k, Math.sin(now / 250 + x * 1.6 + i) * .25 * (x / 3)); } p.needsUpdate = true; });
 
   // camera
@@ -828,6 +1081,16 @@ function frame(now) {
 
   // HUD
   if (race.state !== 'menu') {
+    if (race.state === 'free') {
+      $('cash').textContent = '$' + free.cash.toLocaleString('es-PR');
+      const n = Math.ceil(free.heat);
+      $('stars').innerHTML = '<b>' + '★'.repeat(n) + '</b>' + '★'.repeat(5 - n);
+      $('stars').classList.toggle('flash', n > 0 && free.nearest < 160);
+      const j = free.job, m = j ? Math.round(j.dist) + ' m' : '';
+      $('job').innerHTML = free.heat > 0 ? (free.nearest > 160 ? 'Escondido… <b>' + Math.max(0, 6 + n * 2 - free.escapeT).toFixed(1) + ' s</b> para perderlos' : '¡Piérdete! Aléjate de las patrullas')
+        : !j ? 'Buscando encargo…' : j.stage === 'pick' ? 'Recoge <b>' + j.goods + '</b> en ' + j.from + ' · ' + m : 'Entrega en <b>' + j.dest + '</b> · ' + fmt(Math.max(0, j.time)) + ' · ' + m;
+      $('bust').classList.toggle('hidden', free.bustT <= 0); $('bustBar').style.width = (free.bustT / 2.5 * 100) + '%';
+    }
     const order = [...cars].sort((a, b) => (a.finish ?? 1e9) - (b.finish ?? 1e9) || b.progress - a.progress);
     $('pos').innerHTML = (order.indexOf(player) + 1) + '<small>/' + cars.length + '</small>';
     $('lap').textContent = clamp(player.lap, 1, LAPS) + '/' + LAPS;
@@ -840,6 +1103,6 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__game = { race, get player() { return player; }, cars: () => cars, keys, aiInput };
+window.__game = { race, free, get player() { return player; }, cars: () => cars, traffic: () => traffic, police: () => police, keys, aiInput, startRace, updateFree, addHeat };
 }
 </script>
