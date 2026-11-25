@@ -163,6 +163,7 @@ body.is-touch #prompt{bottom:calc(96px + env(safe-area-inset-bottom,0px))}
   <div class="cash" id="gCash">$0</div>
   <div class="gtabs" id="gTabs"></div>
   <div id="gBody"></div>
+  <button class="ghost" id="gSave">GUARDAR PARTIDA</button>
   <div class="gmsg" id="gMsg"></div>
   <button class="go" id="gDone">LISTO</button>
 </div>
@@ -520,7 +521,7 @@ const MAT = {
   shadow: new THREE.MeshBasicMaterial({ map: glowTex, color: '#000000', transparent: true, opacity: .6, depthWrite: false }),
 };
 const paintCache = {};
-function paintMat(col) { return paintCache[col] || (paintCache[col] = new THREE.MeshPhysicalMaterial({ color: col, metalness: .45, roughness: .32, clearcoat: 1, clearcoatRoughness: .05, envMap: ENV, envMapIntensity: 1.6 })); }
+function paintMat(col) { return paintCache[col] || (paintCache[col] = new THREE.MeshPhysicalMaterial({ color: col, metalness: .62, roughness: .22, clearcoat: 1, clearcoatRoughness: .025, envMap: ENV, envMapIntensity: 2.0 })); }
 const wheelGeo = (() => {
   // rounded tyre (lathe around the axle) and a five-spoke alloy rim with a centre cap, axle along X
   const tp = [[.27, -.155], [.355, -.165], [.395, -.13], [.41, -.05], [.41, .05], [.395, .13], [.355, .165], [.27, .155]].map(([r, y]) => new THREE.Vector2(r, y));
@@ -554,6 +555,21 @@ function makeCarMesh(c) {
   const add = (geo, mat, x, y, z, parent = body) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
   const id = c.shape || 'gt', G = carGeo(id), D = G.def, BW = D.bodyW + D.bevel * 2, T = trimGeo(id);
   add(G.body, paint, 0, 0, 0);
+  // Sculpted smooth outer skin: the profile mesh remains the structural core,
+  // while these blended ellipsoids remove the flat, toy-block appearance.
+  const shellGeo = new THREE.SphereGeometry(1, 40, 28);
+  const shell = add(shellGeo, paint, 0, .64, (D.front + D.rear) / 2);
+  shell.scale.set(BW * .535, .335, (D.front - D.rear) * .49);
+  const hood = add(new THREE.SphereGeometry(1, 32, 22), paint, 0, .79, D.front * .48);
+  hood.scale.set(BW * .43, .145, Math.max(.58, D.front * .48));
+  const rearDeck = add(new THREE.SphereGeometry(1, 32, 22), paint, 0, .79, D.rear * .48);
+  rearDeck.scale.set(BW * .43, .145, Math.max(.55, Math.abs(D.rear) * .48));
+  // Rounded shoulders above each wheel give the fenders a continuous curved silhouette.
+  const [archX, archZ] = D.wheel;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const arch = add(new THREE.SphereGeometry(1, 24, 18), paint, sx * (archX * .92), .59, sz * archZ);
+    arch.scale.set(.22, .255, .56);
+  }
   add(G.cabin, MAT.glass, 0, 0, 0);
   add(T.dark, MAT.trim, 0, 0, 0);
   add(T.chrome, MAT.chrome, 0, 0, 0);
@@ -864,6 +880,7 @@ const SAVE_KEY = 'islaTurbo.v1';
 const save = { cash: 0, owned: ['coqui', 'flamboyan', 'mofongo'], up: {}, paint: {} };
 try { const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (d && typeof d === 'object') { save.cash = Math.max(0, +d.cash || 0); if (Array.isArray(d.owned)) save.owned = [...new Set([...save.owned, ...d.owned])]; if (d.up) save.up = d.up; if (d.paint) save.paint = d.paint; } } catch (e) {}
 let saveDirty = false;
+let pendingPaint = null;
 function persist() { saveDirty = false; try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
 setInterval(() => { if (saveDirty) persist(); }, 3000);
 const PAINTS = ['#2ee86a', '#ff3b1f', '#ffc21f', '#19d3c5', '#ff4bd8', '#3b6cff', '#f4f4f4', '#22252c', '#ff8a1f', '#9b5cff'];
@@ -872,28 +889,44 @@ const UPGRADES = [{ k: 'motor', name: 'Motor', sub: 'Más velocidad punta y acel
 const owns = id => save.owned.includes(id);
 function ups(id) { const u = save.up[id] || (save.up[id] = {}); for (const x of UPGRADES) u[x.k] = clamp(+u[x.k] || 0, 0, 3); return u; }
 function carStats(i) {
-  const b = CARS[i], u = ups(b.id), col = save.paint[b.id] || b.color;
+  const b = CARS[i], u = ups(b.id), col = (i === selected && pendingPaint) || save.paint[b.id] || b.color;
   return { ...b, color: col, glow: col, max: b.max * (1 + .03 * u.motor), accel: b.accel * (1 + .07 * u.motor), grip: b.grip * (1 + .07 * u.grip), turn: b.turn * (1 + .03 * u.grip), nitroDrain: 28 * (1 - .15 * u.nitro), nitroBoost: 1.28 + .04 * u.nitro };
 }
 const money = n => '$' + Math.round(n).toLocaleString('es-PR');
 function spend(n) { if (save.cash < n) { $('gMsg').textContent = 'No te alcanza: te faltan ' + money(n - save.cash) + '. Gana chavos en Calle libre o en carreras.'; return false; } save.cash -= n; persist(); chime([72, 79, 84]); return true; }
 function renderGarage() {
-  const c = CARS[selected], u = ups(c.id), mine = owns(c.id), cur = save.paint[c.id] || c.color;
+  const c = CARS[selected], u = ups(c.id), mine = owns(c.id), cur = pendingPaint || save.paint[c.id] || c.color;
   $('gCash').textContent = money(save.cash);
   $('gTabs').innerHTML = CARS.map((x, i) => `<button class="gtab" data-i="${i}" aria-pressed="${i === selected}">${x.name}${owns(x.id) ? '' : '<br><span class="lock">' + money(x.price) + '</span>'}</button>`).join('');
   let h = `<div class="nm" style="font-weight:800;font-size:20px">${c.name}</div><div class="sub" style="opacity:.8">${c.sub}</div>`;
   if (!mine) h += `<div class="up"><div><div class="nm">Comprar</div><div class="sub">Se queda en tu garaje para siempre</div></div><span></span><button class="buy" data-buy="car">${money(c.price)}</button></div>`;
   else {
-    h += `<div class="gsec">PINTURA · ${money(PAINT_PRICE)}</div><div class="paints">${[c.color, ...PAINTS.filter(x => x !== c.color)].map(x => `<button class="paint" data-paint="${x}" aria-label="Pintura ${x}" aria-pressed="${x === cur}" style="background:${x}"></button>`).join('')}</div><div class="gsec">MEJORAS</div>`;
+    h += `<div class="gsec">PINTURA · ${money(PAINT_PRICE)}</div><div class="paints">${[c.color, ...PAINTS.filter(x => x !== c.color)].map(x => `<button class="paint" data-paint="${x}" aria-label="Pintura ${x}" aria-pressed="${x === cur}" style="background:${x}"></button>`).join('')}</div><div class="sub" style="opacity:.8;margin-top:6px">Vista previa. No se cobra hasta comprar.</div>${pendingPaint && pendingPaint !== (save.paint[c.id] || c.color) ? `<button class="buy paintbuy" data-buy-paint>COMPRAR PINTURA · ${money(PAINT_PRICE)}</button>` : ''}<div class="gsec">MEJORAS</div>`;
     h += UPGRADES.map(x => `<div class="up"><div><div class="nm">${x.name}</div><div class="sub">${x.sub}</div></div><span class="pips">${[0, 1, 2].map(k => `<i class="${k < u[x.k] ? 'on' : ''}"></i>`).join('')}</span><button class="buy" data-up="${x.k}" ${u[x.k] >= 3 ? 'disabled' : ''}>${u[x.k] >= 3 ? 'MÁX' : money(UPG_PRICE[u[x.k]])}</button></div>`).join('');
   }
   $('gBody').innerHTML = h;
-  document.querySelectorAll('.gtab').forEach(b => b.onclick = () => { selected = +b.dataset.i; $('gMsg').textContent = ''; buildGrid(); renderGarage(); });
+  document.querySelectorAll('.gtab').forEach(b => b.onclick = () => { selected = +b.dataset.i; pendingPaint = null; $('gMsg').textContent = ''; buildGrid(); renderGarage(); });
   document.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => { if (spend(c.price)) { save.owned.push(c.id); persist(); $('gMsg').textContent = '¡' + c.name + ' es tuyo!'; renderGarage(); renderCarList(); } });
-  document.querySelectorAll('[data-paint]').forEach(b => b.onclick = () => { const col = b.dataset.paint; if (col === cur) return; if (col === c.color ? true : spend(PAINT_PRICE)) { save.paint[c.id] = col; persist(); $('gMsg').textContent = 'Pintura nueva'; buildGrid(); renderGarage(); } });
+  document.querySelectorAll('[data-paint]').forEach(b => b.onclick = () => {
+    const col = b.dataset.paint;
+    pendingPaint = col === (save.paint[c.id] || c.color) ? null : col;
+    $('gMsg').textContent = pendingPaint ? 'Vista previa. No se ha cobrado nada.' : 'Color original restaurado en la vista previa.';
+    buildGrid(); renderGarage();
+  });
+  const paintBuy = document.querySelector('[data-buy-paint]');
+  if (paintBuy) paintBuy.onclick = () => {
+    if (!pendingPaint) return;
+    if (pendingPaint === c.color) {
+      delete save.paint[c.id]; persist();
+    } else if (!spend(PAINT_PRICE)) return;
+    else { save.paint[c.id] = pendingPaint; persist(); }
+    pendingPaint = null; $('gMsg').textContent = '¡Pintura comprada y guardada!';
+    buildGrid(); renderGarage();
+  };
   document.querySelectorAll('[data-up]').forEach(b => b.onclick = () => { const k = b.dataset.up; if (u[k] < 3 && spend(UPG_PRICE[u[k]])) { u[k]++; persist(); $('gMsg').textContent = UPGRADES.find(x => x.k === k).name + ' nivel ' + u[k]; buildGrid(); renderGarage(); renderCarList(); } });
 }
-function openGarage() { initAudio(); $('menu').classList.add('hidden'); $('garage').classList.remove('hidden'); $('gMsg').textContent = ''; renderGarage(); }
+function openGarage() { initAudio(); pendingPaint = null; $('menu').classList.add('hidden'); $('garage').classList.remove('hidden'); $('gMsg').textContent = ''; renderGarage(); }
+$('gSave').onclick = () => { persist(); $('gMsg').textContent = 'Partida guardada en este dispositivo.'; };
 function closeGarage() { $('garage').classList.add('hidden'); $('menu').classList.remove('hidden'); renderCarList(); }
 $('garageBtn').onclick = openGarage; $('gDone').onclick = closeGarage;
 
@@ -912,7 +945,7 @@ function buildGrid() {
 function renderCarList() {
   const pct = (v, a, b) => clamp((v - a) / (b - a) * 100, 4, 100);
   $('cars').innerHTML = CARS.map((b, i) => { const c = carStats(i), mine = owns(b.id); return `<button class="car${mine ? '' : ' locked'}" aria-pressed="${i === selected}" data-i="${i}"><span class="sw" style="background:${c.color};box-shadow:0 0 10px ${c.color}"></span><span><span class="nm">${c.name}</span><br><span class="sub">${mine ? c.sub : 'Cómpralo en el garaje'}</span></span>${mine ? `<span class="bars">Vel<span><i style="width:${pct(c.max, 60, 86)}%"></i></span>Acel<span><i style="width:${pct(c.accel, 12, 20)}%"></i></span>Agarre<span><i style="width:${pct(c.grip, 6, 10)}%"></i></span></span>` : `<span class="lock">${money(b.price)}</span>`}</button>`; }).join('');
-  document.querySelectorAll('.car').forEach(b => b.onclick = () => { selected = +b.dataset.i; buildGrid(); if (!owns(CARS[selected].id)) openGarage(); else renderCarList(); });
+  document.querySelectorAll('.car').forEach(b => b.onclick = () => { selected = +b.dataset.i; pendingPaint = null; buildGrid(); if (!owns(CARS[selected].id)) openGarage(); else renderCarList(); });
   $('garageBtn').textContent = 'GARAJE · ' + money(save.cash);
 }
 renderCarList(); buildGrid();
