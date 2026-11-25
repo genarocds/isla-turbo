@@ -98,6 +98,7 @@ body.is-touch #bl{display:none}
 .pips i.on{background:var(--mango)}
 .buy{min-height:40px;min-width:92px;border:0;border-radius:8px;background:var(--turq);color:#032;font:15px Bungee,sans-serif;cursor:pointer;white-space:nowrap}
 .buy:disabled{background:rgba(255,255,255,.12);color:rgba(255,255,255,.5);cursor:default}
+ .buy.paintbuy{background:var(--flam);color:#fff;min-width:100%;margin:8px 0}
 .gmsg{min-height:20px;margin-top:8px;font-weight:700;color:var(--mango)}
 #prompt{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:4;background:var(--glass);border:2px solid #ff4bd8;border-radius:10px;padding:8px 14px;font-weight:800;font-size:17px;max-width:calc(100% - 32px);text-align:center}
 #prompt kbd{font:14px Bungee,sans-serif;background:#ff4bd8;color:#fff;border-radius:4px;padding:1px 7px;margin-right:6px}
@@ -162,6 +163,7 @@ body.is-touch #prompt{bottom:calc(96px + env(safe-area-inset-bottom,0px))}
   <div class="gtabs" id="gTabs"></div>
   <div id="gBody"></div>
   <div class="gmsg" id="gMsg"></div>
+  <button class="ghost" id="gSave">GUARDAR PARTIDA</button>
   <button class="go" id="gDone">LISTO</button>
 </div>
 <div id="prompt" class="hidden"></div>
@@ -510,9 +512,19 @@ function makeCarMesh(c) {
   const body = new THREE.Group(); g.add(body); g.userData.body = body;
   const add = (geo, mat, x, y, z, parent = body) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
   const G = carGeo(c.shape || 'gt'), D = G.def, BW = D.bodyW + D.bevel * 2;
-  add(G.body, paint, 0, 0, 0);
-  // Cabin is glazed rather than a single black silhouette; the original silhouette remains the structural roof.
-  add(G.cabin, glass, 0, 0, 0);
+  // Smooth ellipsoidal coachwork replaces the old flat extruded slab.
+  // The overlapping rounded volumes create curved fenders, hood, shoulders and tail.
+  const sphere = new THREE.SphereGeometry(1, 32, 24);
+  const shell = add(sphere, paint, 0, .55, 0); shell.scale.set(BW * .53, .43, 2.58);
+  const hood = add(sphere, paint, 0, .67, 1.48); hood.scale.set(BW * .49, .28, 1.02);
+  const rearDeck = add(sphere, paint, 0, .65, -1.72); rearDeck.scale.set(BW * .5, .3, .88);
+  const cabin = add(sphere, glass, 0, 1.02, -.42); cabin.scale.set(D.cabinW * .49, .48, 1.34);
+  const roof = add(sphere, paint, 0, 1.39, -.45); roof.scale.set(D.cabinW * .43, .13, .86);
+  // Rounded wheel-arch shoulders visually integrate the wheels with the body.
+  for (const side of [-1, 1]) for (const z of [D.wheel[1], -D.wheel[1]]) {
+    const arch = add(sphere, paint, side * (D.bodyW * .43), .53, z);
+    arch.scale.set(.22, .49, .69);
+  }
   const cabinSide = D.cabinW * .49;
   for (const side of [-1, 1]) {
     // Side windows, window surrounds, door seams and sculpted side skirts.
@@ -875,35 +887,42 @@ const UPGRADES = [{ k: 'motor', name: 'Motor', sub: 'Más velocidad punta y acel
 const owns = id => save.owned.includes(id);
 function ups(id) { const u = save.up[id] || (save.up[id] = {}); for (const x of UPGRADES) u[x.k] = clamp(+u[x.k] || 0, 0, 3); return u; }
 function carStats(i) {
-  const b = CARS[i], u = ups(b.id), col = save.paint[b.id] || b.color;
+  const b = CARS[i], u = ups(b.id), col = (i === selected && pendingPaint) || save.paint[b.id] || b.color;
   return { ...b, color: col, glow: col, max: b.max * (1 + .03 * u.motor), accel: b.accel * (1 + .07 * u.motor), grip: b.grip * (1 + .07 * u.grip), turn: b.turn * (1 + .03 * u.grip), nitroDrain: 28 * (1 - .15 * u.nitro), nitroBoost: 1.28 + .04 * u.nitro };
 }
 const money = n => '$' + Math.round(n).toLocaleString('es-PR');
 function spend(n) { if (save.cash < n) { $('gMsg').textContent = 'No te alcanza: te faltan ' + money(n - save.cash) + '. Gana chavos en Calle libre o en carreras.'; return false; } save.cash -= n; persist(); chime([72, 79, 84]); return true; }
 function renderGarage() {
   const c = CARS[selected], u = ups(c.id), mine = owns(c.id), cur = save.paint[c.id] || c.color;
+  const preview = pendingPaint || cur;
   $('gCash').textContent = money(save.cash);
   $('gTabs').innerHTML = CARS.map((x, i) => `<button class="gtab" data-i="${i}" aria-pressed="${i === selected}">${x.name}${owns(x.id) ? '' : '<br><span class="lock">' + money(x.price) + '</span>'}</button>`).join('');
   let h = `<div class="nm" style="font-weight:800;font-size:20px">${c.name}</div><div class="sub" style="opacity:.8">${c.sub}</div>`;
   if (!mine) h += `<div class="up"><div><div class="nm">Comprar</div><div class="sub">Se queda en tu garaje para siempre</div></div><span></span><button class="buy" data-buy="car">${money(c.price)}</button></div>`;
   else {
-    h += `<div class="gsec">PINTURA · ${money(PAINT_PRICE)}</div><div class="paints">${[c.color, ...PAINTS.filter(x => x !== c.color)].map(x => `<button class="paint" data-paint="${x}" aria-label="Pintura ${x}" aria-pressed="${x === cur}" style="background:${x}"></button>`).join('')}</div><div class="gsec">MEJORAS</div>`;
+    h += `<div class="gsec">PINTURA · ${money(PAINT_PRICE)} (elige para previsualizar)</div><div class="paints">${[c.color, ...PAINTS.filter(x => x !== c.color)].map(x => `<button class="paint" data-paint="${x}" aria-label="Pintura ${x}" aria-pressed="${x === preview}" style="background:${x}"></button>`).join('')}</div>`;
+    h += `<div class="sub">Color seleccionado: <b style="color:${preview}">${preview}</b></div>`;
+    if (pendingPaint && pendingPaint !== cur) h += `<button class="buy paintbuy" data-buy-paint>COMPRAR PINTURA · ${money(PAINT_PRICE)}</button>`;
+    h += `<div class="gsec">MEJORAS</div>`;
     h += UPGRADES.map(x => `<div class="up"><div><div class="nm">${x.name}</div><div class="sub">${x.sub}</div></div><span class="pips">${[0, 1, 2].map(k => `<i class="${k < u[x.k] ? 'on' : ''}"></i>`).join('')}</span><button class="buy" data-up="${x.k}" ${u[x.k] >= 3 ? 'disabled' : ''}>${u[x.k] >= 3 ? 'MÁX' : money(UPG_PRICE[u[x.k]])}</button></div>`).join('');
   }
   $('gBody').innerHTML = h;
-  document.querySelectorAll('.gtab').forEach(b => b.onclick = () => { selected = +b.dataset.i; $('gMsg').textContent = ''; buildGrid(); renderGarage(); });
-  document.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => { if (spend(c.price)) { save.owned.push(c.id); persist(); $('gMsg').textContent = '¡' + c.name + ' es tuyo!'; renderGarage(); renderCarList(); } });
-  document.querySelectorAll('[data-paint]').forEach(b => b.onclick = () => { const col = b.dataset.paint; if (col === cur) return; if (col === c.color ? true : spend(PAINT_PRICE)) { save.paint[c.id] = col; persist(); $('gMsg').textContent = 'Pintura nueva'; buildGrid(); renderGarage(); } });
+  document.querySelectorAll('.gtab').forEach(b => b.onclick = () => { selected = +b.dataset.i; pendingPaint = null; $('gMsg').textContent = ''; buildGrid(); renderGarage(); });
+  document.querySelectorAll('[data-buy="car"]').forEach(b => b.onclick = () => { if (spend(c.price)) { save.owned.push(c.id); persist(); $('gMsg').textContent = '¡' + c.name + ' es tuyo!'; renderGarage(); renderCarList(); } });
+  document.querySelectorAll('[data-paint]').forEach(b => b.onclick = () => { const col = b.dataset.paint; pendingPaint = col === cur ? null : col; $('gMsg').textContent = pendingPaint ? 'Vista previa. No se ha cobrado nada.' : 'Color original restaurado.'; buildGrid(); renderGarage(); });
+  document.querySelectorAll('[data-buy-paint]').forEach(b => b.onclick = () => { if (!pendingPaint || pendingPaint === cur) return; if (spend(PAINT_PRICE)) { save.paint[c.id] = pendingPaint; pendingPaint = null; persist(); $('gMsg').textContent = '¡Pintura comprada y aplicada!'; buildGrid(); renderGarage(); renderCarList(); } });
   document.querySelectorAll('[data-up]').forEach(b => b.onclick = () => { const k = b.dataset.up; if (u[k] < 3 && spend(UPG_PRICE[u[k]])) { u[k]++; persist(); $('gMsg').textContent = UPGRADES.find(x => x.k === k).name + ' nivel ' + u[k]; buildGrid(); renderGarage(); renderCarList(); } });
 }
 function openGarage() { initAudio(); $('menu').classList.add('hidden'); $('garage').classList.remove('hidden'); $('gMsg').textContent = ''; renderGarage(); }
 function closeGarage() { $('garage').classList.add('hidden'); $('menu').classList.remove('hidden'); renderCarList(); }
-$('garageBtn').onclick = openGarage; $('gDone').onclick = closeGarage;
+$('garageBtn').onclick = openGarage;
+$('gSave').onclick = () => { persist(); $('gMsg').textContent = 'Partida guardada en este dispositivo.'; chime([72, 79, 84]); };
+$('gDone').onclick = closeGarage;
 
 // ---------------------------------------------------------------- race state
 const LAPS = 3;
 const race = { mode: 'race', state: 'menu', t: 0, count: 0, bestLap: null, lapStart: 0, driftScore: 0, driftChain: 0, driftIdle: 0, total: 0 };
-let player, cars = [], selected = 0, camMode = 0;
+let player, cars = [], selected = 0, camMode = 0, pendingPaint = null;
 function buildGrid() {
   for (const c of cars) scene.remove(c.mesh);
   player = new Car(carStats(selected), true, 'Tú');
