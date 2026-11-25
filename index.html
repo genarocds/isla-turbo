@@ -394,6 +394,32 @@ const RIVALS = [
   { name: 'La Nena de Ponce', color: '#ff4bd8', glow: '#ff6be6', accel: 16, max: 70, grip: 8.2, turn: 2.1, skill: .93 },
   { name: 'Boricua Speed', color: '#f4f4f4', glow: '#19d3c5', accel: 14, max: 75, grip: 7, turn: 1.85, skill: .9 },
 ];
+// rounded body: side profiles extruded across the car's width with bevelled edges
+let carGeoCache = null;
+function carGeo() {
+  if (carGeoCache) return carGeoCache;
+  const extrude = (shape, depth, bevel) => {
+    const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel * .85, bevelSegments: 5, curveSegments: 18 });
+    geo.rotateY(-Math.PI / 2); geo.translate(depth / 2, 0, 0); geo.computeVertexNormals(); return geo;
+  };
+  const b = new THREE.Shape();
+  b.moveTo(-2.2, .32); b.lineTo(2.1, .32);
+  b.quadraticCurveTo(2.42, .34, 2.4, .56);
+  b.quadraticCurveTo(2.32, .76, 1.9, .8);
+  b.quadraticCurveTo(1.1, .9, .55, .94);
+  b.lineTo(-1.5, .97);
+  b.quadraticCurveTo(-2.22, 1.0, -2.33, .84);
+  b.quadraticCurveTo(-2.4, .5, -2.2, .32);
+  const c = new THREE.Shape();
+  c.moveTo(.75, .88);
+  c.quadraticCurveTo(.1, 1.4, -.45, 1.43);
+  c.quadraticCurveTo(-1.25, 1.43, -1.85, .93);
+  c.lineTo(.75, .88);
+  const w = new THREE.Shape();
+  w.moveTo(-.25, 0); w.quadraticCurveTo(0, .09, .25, .02); w.lineTo(.25, -.01); w.quadraticCurveTo(0, .03, -.25, -.03); w.lineTo(-.25, 0);
+  carGeoCache = { body: extrude(b, 1.66, .2), cabin: extrude(c, 1.3, .14), wing: extrude(w, 1.9, .03) };
+  return carGeoCache;
+}
 function makeCarMesh(c) {
   const g = new THREE.Group();
   const paint = new THREE.MeshPhongMaterial({ color: c.color, shininess: 110, specular: '#ffffff' });
@@ -401,19 +427,19 @@ function makeCarMesh(c) {
   const black = new THREE.MeshLambertMaterial({ color: '#111' });
   const body = new THREE.Group(); g.add(body); g.userData.body = body;
   const add = (geo, mat, x, y, z, parent = body) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
-  add(new THREE.BoxGeometry(2.05, .5, 4.5), paint, 0, .62, 0);
-  const nose = add(new THREE.BoxGeometry(2.0, .3, 1.3), paint, 0, .95, 1.4); nose.rotation.x = -.12;
-  add(new THREE.BoxGeometry(1.7, .52, 2.0), dark, 0, 1.12, -.35);
-  add(new THREE.BoxGeometry(1.74, .08, 1.7), paint, 0, 1.4, -.4);
-  add(new THREE.BoxGeometry(2.1, .08, .45), dark, 0, 1.3, -2.15);
-  for (const x of [-.7, .7]) add(new THREE.BoxGeometry(.1, .4, .1), dark, x, 1.05, -2.1);
-  add(new THREE.BoxGeometry(2.1, .14, 4.2), black, 0, .34, 0);
+  const G = carGeo();
+  add(G.body, paint, 0, 0, 0);
+  add(G.cabin, dark, 0, 0, 0);
+  add(new THREE.BoxGeometry(1.95, .12, 3.9), black, 0, .3, 0);
+  add(G.wing, dark, 0, 1.16, -2.0);
+  for (const x of [-.6, .6]) add(new THREE.BoxGeometry(.08, .22, .14), dark, x, 1.02, -2.0);
   const hl = new THREE.MeshBasicMaterial({ color: '#f4fbff' }), tl = new THREE.MeshBasicMaterial({ color: '#ff1a2a' });
-  for (const x of [-.72, .72]) { add(new THREE.BoxGeometry(.5, .14, .06), hl, x, .78, 2.26); add(new THREE.BoxGeometry(.55, .14, .06), tl, x, .8, -2.26); }
+  for (const x of [-.62, .62]) { const h = add(new THREE.BoxGeometry(.55, .07, .12), hl, x, .7, 2.36); h.rotation.y = x > 0 ? .25 : -.25; }
+  add(new THREE.BoxGeometry(1.8, .07, .08), tl, 0, .84, -2.36);
   g.userData.wheels = [];
-  const wg = new THREE.CylinderGeometry(.4, .4, .34, 14); wg.rotateZ(Math.PI / 2);
+  const wg = new THREE.CylinderGeometry(.4, .4, .32, 18); wg.rotateZ(Math.PI / 2);
   const rim = new THREE.MeshPhongMaterial({ color: '#aab', shininess: 60 });
-  for (const [x, z] of [[-1, 1.4], [1, 1.4], [-1, -1.4], [1, -1.4]]) {
+  for (const [x, z] of [[-.98, 1.45], [.98, 1.45], [-.98, -1.45], [.98, -1.45]]) {
     const w = new THREE.Group(); w.position.set(x, .4, z); g.add(w);
     w.add(new THREE.Mesh(wg, black));
     const r = new THREE.Mesh(new THREE.BoxGeometry(.36, .5, .1), rim); w.add(r);
